@@ -8,4 +8,4 @@ services:
       - key: IS_PROD
         value: true
       - key: DOMAIN
-        value: https://bps.onrender.com
+        value: https://bps-iseg-api.onrender.com
