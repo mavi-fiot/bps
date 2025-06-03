@@ -2,10 +2,38 @@
 <html lang="uk">
 <head>
     <meta charset="UTF-8">
-    <title>{{ title }}</title>
+    <title>{{ title or "ІСЕГ — Голосування" }}</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 2em; background: #f9f9f9; }
+        textarea, input, button { width: 100%; padding: 10px; margin-top: 10px; }
+        pre { background: #eee; padding: 10px; white-space: pre-wrap; }
+    </style>
 </head>
 <body>
-    <h1>ІСЕГ</h1>
-    <p>Система електронного голосування. Роут /secure доступний для тестування захисту бюлетеня.</p>
+    <h1>ІСЕГ — Система електронного голосування</h1>
+    <p>Введіть текст бюлетеня для шифрування і перевірки:</p>
+
+    <form id="voteForm">
+        <textarea id="ballot" rows="4" placeholder="Наприклад: Голосую ЗА проєкт №1"></textarea>
+        <button type="submit">Надіслати</button>
+    </form>
+
+    <h3>Результат:</h3>
+    <pre id="result">Очікую на введення...</pre>
+
+    <script>
+        const form = document.getElementById('voteForm');
+        const result = document.getElementById('result');
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const text = document.getElementById('ballot').value;
+
+            const response = await fetch('/secure/test');
+            const data = await response.json();
+
+            result.textContent = JSON.stringify(data, null, 2);
+        });
+    </script>
 </body>
 </html>
