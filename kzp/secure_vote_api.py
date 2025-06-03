@@ -24,10 +24,6 @@ secretary_pub = secretary_priv * G
 
 router = APIRouter()
 
-curve = Curve.get_curve('Ed25519')
-G = curve.generator
-q = curve.order
-
 storage = BallotStorage()  # ← має бути вже ініціалізовано
 
 class SignaturePoint(BaseModel):
