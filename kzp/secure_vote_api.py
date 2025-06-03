@@ -1,8 +1,10 @@
 # kzp/secure_vote_api.py
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 from ecpy.curves import Curve, Point
-import hashlib, secrets
+import hashlib
+from kzp.store import BallotStorage
 
 router = APIRouter()
 
@@ -10,39 +12,95 @@ curve = Curve.get_curve('Ed25519')
 G = curve.generator
 q = curve.order
 
-@router.get("/test")
-def demo_crypto():
-    # Генерація ключів
-    priv_key = secrets.randbelow(q)
-    pub_key = priv_key * G
+storage = BallotStorage()  # ← має бути вже ініціалізовано
 
-    # Повідомлення
-    message = "З питання першого порядку денного — голосую За"
-    hash_scalar = int.from_bytes(hashlib.sha512(message.encode()).digest(), 'big') % q
-    M = hash_scalar * G
+class SignaturePoint(BaseModel):
+    x: int
+    y: int
 
-    # ElGamal-шифрування
-    r = secrets.randbelow(q)
-    C1 = r * G
-    C2 = M + r * pub_key
+class VoteIn(BaseModel):
+    voter_id: str
+    ballot_id: str
+    choice: str
+    signature: SignaturePoint
+    public_key: SignaturePoint  # публічний ключ виборця
 
-    # Розшифрування
-    S = priv_key * C1
-    M_decrypted = C2 - S
-    M_check = hash_scalar * G
-    is_valid = M_check == M_decrypted
+@router.post("/vote")
+def submit_vote(vote: VoteIn):
+    ballot = storage.get_ballot(vote.ballot_id)
+    if not ballot:
+        raise HTTPException(status_code=404, detail="Бюлетень не знайдено")
+
+    if vote.choice not in ["за", "проти"]:
+        raise HTTPException(status_code=400, detail="Недопустимий вибір")
+
+    # Хеш вибору
+    hash_scalar = int.from_bytes(hashlib.sha512(vote.choice.encode()).digest(), 'big') % q
+    expected_point = hash_scalar * G
+
+    # Підпис, публічний ключ
+    signature = Point(vote.signature.x, vote.signature.y, curve)
+    public_key = Point(vote.public_key.x, vote.public_key.y, curve)
+
+    # Перевірка: чи підпис == h * G (на рівні точки)
+    is_valid = signature == expected_point
+
+    if not is_valid:
+        raise HTTPException(status_code=403, detail="❌ Підпис недійсний")
+
+    # Зберігаємо голос (хеш + підпис)
+    storage.store_encrypted(vote.voter_id, {
+        "ballot_id": vote.ballot_id,
+        "choice": vote.choice,
+        "hash_scalar": hash_scalar,
+        "signature": signature,
+        "public_key": public_key
+    })
 
     return {
-        "curve": curve.name,
-        "private_key": priv_key,
-        "public_key": {"x": pub_key.x, "y": pub_key.y},
-        "message": message,
-        "hash_scalar": hash_scalar,
-        "point_M": {"x": M.x, "y": M.y},
-        "ciphertext": {
-            "C1": {"x": C1.x, "y": C1.y},
-            "C2": {"x": C2.x, "y": C2.y},
-        },
-        "decrypted_point_M": {"x": M_decrypted.x, "y": M_decrypted.y},
-        "valid": is_valid
+        "status": "✅ Голос збережено",
+        "voter_id": vote.voter_id,
+        "choice": vote.choice,
+        "valid_signature": is_valid
     }
+
+@router.post("/finalize_vote")
+def finalize_vote():
+    results = {}
+    ballots = storage.ballots
+    votes = storage.get_all_votes()
+
+    for voter_id, vote_data in votes.items():
+        ballot_id = vote_data["ballot_id"]
+        ballot = ballots.get(ballot_id)
+
+        if not ballot:
+            results[voter_id] = "❌ Бюлетень не знайдено"
+            continue
+
+        # Розшифрування: спочатку секретар
+        C1_sec = ballot["C1_sec"]
+        C2_sec = ballot["C2_sec"]
+        C2_srv = C2_sec - secretary_priv * C1_sec  # зняти шифр секретаря
+
+        # Тепер сервер
+        C1_srv = ballot["C1_srv"]
+        M = C2_srv - server_priv * C1_srv          # зняти шифр сервера
+
+        # Перевірка хешу
+        expected_point = vote_data["hash_scalar"] * G
+        if M != expected_point:
+            results[voter_id] = "❌ Хеш не збігається"
+            continue
+
+        # Перевірка підпису (ще раз, для надійності)
+        signature = vote_data["signature"]
+        public_key = vote_data["public_key"]
+        if signature != vote_data["hash_scalar"] * G:
+            results[voter_id] = "❌ Невірний підпис"
+            continue
+
+        # Голос зараховується
+        results[voter_id] = f"✅ Голос зараховано: {vote_data['choice']}"
+
+    return results

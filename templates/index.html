@@ -18,6 +18,12 @@
         <button type="submit">Надіслати</button>
     </form>
 
+    <button id="finalizeBtn">🛑 Завершити голосування</button>
+
+<h3>Підсумки:</h3>
+<pre id="finalResult">...</pre>
+
+
     <h3>Результат:</h3>
     <pre id="result">Очікую на введення...</pre>
 
@@ -34,6 +40,18 @@
 
             result.textContent = JSON.stringify(data, null, 2);
         });
+
+        const finalizeBtn = document.getElementById('finalizeBtn');
+    const finalResult = document.getElementById('finalResult');
+
+    finalizeBtn.addEventListener('click', async () => {
+        const res = await fetch('/secure/finalize_vote', {
+            method: 'POST'
+        });
+
+        const data = await res.json();
+        finalResult.textContent = JSON.stringify(data, null, 2);
+    });
     </script>
 </body>
 </html>
