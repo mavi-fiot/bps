@@ -4,6 +4,8 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from ecpy.curves import Curve, Point
 import hashlib, secrets
+from kzp.store import BallotStorage
+
 
 # Ініціалізація кривої та генератора
 curve = Curve.get_curve('Ed25519')
