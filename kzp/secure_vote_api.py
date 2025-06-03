@@ -3,13 +3,14 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from ecpy.curves import Curve, Point
-import hashlib
-from kzp.store import BallotStorage
+import hashlib, secrets
 
+# Ініціалізація кривої та генератора
+curve = Curve.get_curve('Ed25519')
+G = curve.generator
+q = curve.order  # 👈 Тільки тут q стає доступним
 
-import secrets
-
-# Глобальні ключі
+# Після q — ключі:
 server_priv = secrets.randbelow(q)
 server_pub = server_priv * G
 
