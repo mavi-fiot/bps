@@ -95,8 +95,11 @@
   const endpoint = "/secure";
 
   window.addEventListener("DOMContentLoaded", async () => {
-    const res = await fetch(`${endpoint}/generate_ballots`);
+    const res = await fetch(`${endpoint}/generate_ballots`, {
+        method: "POST"
+    });
     const data = await res.json();
+    Object.assign(ballotMap, data.ballots);
     document.getElementById("questionText").textContent = data.question;
     document.getElementById("decisionText").textContent = data.decision;
     Object.assign(ballotMap, data.ballots);
