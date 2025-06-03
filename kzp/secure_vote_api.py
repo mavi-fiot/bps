@@ -6,6 +6,16 @@ from ecpy.curves import Curve, Point
 import hashlib
 from kzp.store import BallotStorage
 
+
+import secrets
+
+# Глобальні ключі
+server_priv = secrets.randbelow(q)
+server_pub = server_priv * G
+
+secretary_priv = secrets.randbelow(q)
+secretary_pub = secretary_priv * G
+
 router = APIRouter()
 
 curve = Curve.get_curve('Ed25519')
