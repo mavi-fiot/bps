@@ -6,6 +6,9 @@ from ecpy.curves import Curve, Point
 import hashlib, secrets
 from kzp.store import BallotStorage
 
+import uuid
+
+
 
 # Ініціалізація кривої та генератора
 curve = Curve.get_curve('Ed25519')
@@ -37,6 +40,51 @@ class VoteIn(BaseModel):
     choice: str
     signature: SignaturePoint
     public_key: SignaturePoint  # публічний ключ виборця
+
+def elgamal_encrypt(M: Point, pub_key: Point):
+    r = secrets.randbelow(q)
+    C1 = r * G
+    C2 = M + r * pub_key
+    return C1, C2
+
+@router.post("/generate_ballots")
+def generate_ballots():
+    text = "Затвердити звіт за 2024 рік"
+    base_question = "Питання перше – Про затвердження звіту за 2024 рік"
+    variants = ["за", "проти", "утримався"]
+
+    ballot_ids = {}
+
+    for variant in variants:
+        # Кожен бюлетень однаковий по суті — різниця лише у варіанті
+        hash_scalar = int.from_bytes(hashlib.sha512(text.encode()).digest(), 'big') % q
+        M = hash_scalar * G
+
+        # 1. Шифрування сервером
+        C1_srv, C2_srv = elgamal_encrypt(M, server_pub)
+
+        # 2. Шифрування секретарем
+        C1_sec, C2_sec = elgamal_encrypt(C2_srv, secretary_pub)
+
+        ballot_id = str(uuid.uuid4())
+        ballot_ids[variant] = ballot_id
+
+        storage.save_ballot(ballot_id, {
+            "text": text,
+            "variant": variant,
+            "hash_scalar": hash_scalar,
+            "M": M,
+            "C1_srv": C1_srv,
+            "C2_srv": C2_srv,
+            "C1_sec": C1_sec,
+            "C2_sec": C2_sec,
+        })
+
+    return {
+        "question": base_question,
+        "decision": text,
+        "ballots": ballot_ids
+    }    
 
 @router.post("/vote")
 def submit_vote(vote: VoteIn):
