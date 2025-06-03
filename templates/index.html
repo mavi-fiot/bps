@@ -90,55 +90,65 @@
     <pre id="finalResult">...</pre>
   </div>
 
-  <script>
-    const ballotMap = {};
-    const endpoint = "/secure";
+<script>
+  const ballotMap = {};
+  const endpoint = "/secure";
 
-    window.addEventListener("DOMContentLoaded", async () => {
-      const res = await fetch(`${endpoint}/generate_ballots`);
-      const data = await res.json();
-      document.getElementById("questionText").textContent = data.question;
-      document.getElementById("decisionText").textContent = data.decision;
+  window.addEventListener("DOMContentLoaded", async () => {
+    const res = await fetch(`${endpoint}/generate_ballots`);
+    const data = await res.json();
+    document.getElementById("questionText").textContent = data.question;
+    document.getElementById("decisionText").textContent = data.decision;
+    Object.assign(ballotMap, data.ballots);
+    console.log("📦 Отримані бюлетені:", ballotMap);
+  });
 
-      // Запам’ятовуємо ballot_id для кожного варіанту
-      Object.assign(ballotMap, data.ballots);
+  async function submitVote(choice) {
+    const voterId = document.getElementById("voterId").value.trim();
+    if (!voterId) return alert("Введіть ПІБ або ID.");
+
+    const ballot_id = ballotMap[choice];
+    if (!ballot_id) return alert("❌ Бюлетень не знайдено для: " + choice);
+
+    // 📄 Отримуємо текст рішення з DOM
+    const text = document.getElementById("decisionText").textContent;
+    const personalized = text + voterId;
+
+    // 🔐 Хеш SHA-512
+    const enc = new TextEncoder();
+    const data = enc.encode(personalized);
+    const hash = await crypto.subtle.digest("SHA-512", data);
+    const hashHex = [...new Uint8Array(hash)].map(b => b.toString(16).padStart(2, "0")).join("");
+    const hashScalar = BigInt("0x" + hashHex) % (2n ** 252n + 27742317777372353535851937790883648493n); // ≈ q Ed25519
+
+    // ✍️ Псевдо-підпис (sig = h*G моделюємо просто x,y=hashScalar)
+    const signature = { x: hashScalar.toString(), y: hashScalar.toString() };
+    const public_key = signature;
+
+    // 📤 Надсилаємо голос
+    const res = await fetch(`${endpoint}/vote`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        voter_id: voterId,
+        ballot_id,
+        choice,
+        signature,
+        public_key
+      })
     });
 
-    async function submitVote(choice) {
-      const voterId = document.getElementById("voterId").value.trim();
-      if (!voterId) return alert("Введіть ПІБ або ID.");
+    const result = await res.json();
+    document.getElementById("voteResult").textContent = JSON.stringify(result, null, 2);
+  }
 
-      const ballot_id = ballotMap[choice];
-      if (!ballot_id) return alert("Бюлетень не знайдено для вибору: " + choice);
+  async function finalizeVote() {
+    const res = await fetch(`${endpoint}/finalize_vote`, { method: "POST" });
+    const data = await res.json();
+    document.getElementById("finalResult").textContent = JSON.stringify(data, null, 2);
+  }
+</script>
 
-      // Емуляція підпису (тільки для тесту: hash_scalar як x і y)
-      const hash = await crypto.subtle.digest("SHA-512", new TextEncoder().encode(choice));
-      const hash_scalar = BigInt("0x" + [...new Uint8Array(hash)].map(b => b.toString(16).padStart(2, "0")).join("")) % (2n ** 252n);
-      const signature = { x: hash_scalar.toString(), y: hash_scalar.toString() };
-      const public_key = signature;
-
-      const res = await fetch(`${endpoint}/vote`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          voter_id: voterId,
-          ballot_id: ballot_id,
-          choice: choice,
-          signature,
-          public_key
-        })
-      });
-
-      const data = await res.json();
-      document.getElementById("voteResult").textContent = JSON.stringify(data, null, 2);
-    }
-
-    async function finalizeVote() {
-      const res = await fetch(`${endpoint}/finalize_vote`, { method: "POST" });
-      const data = await res.json();
-      document.getElementById("finalResult").textContent = JSON.stringify(data, null, 2);
-    }
-  </script>
 </body>
 </html>
 

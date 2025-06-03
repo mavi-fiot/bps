@@ -88,76 +88,78 @@ def submit_vote(vote: VoteIn):
     if not ballot:
         raise HTTPException(status_code=404, detail="Бюлетень не знайдено")
 
-    if vote.choice not in ["за", "проти"]:
-        raise HTTPException(status_code=400, detail="Недопустимий вибір")
+    base_text = ballot["text"]
+    personalized_text = base_text + vote.voter_id
 
-    # Хеш вибору
-    hash_scalar = int.from_bytes(hashlib.sha512(vote.choice.encode()).digest(), 'big') % q
-    expected_point = hash_scalar * G
+    # 🔐 Хешування з персоналізацією
+    hash_scalar = int.from_bytes(
+        hashlib.sha512(personalized_text.encode()).digest(), 'big') % q
+    M = hash_scalar * G
 
-    # Підпис, публічний ключ
+    # 🔐 Подвійне ElGamal
+    C1_srv, C2_srv = elgamal_encrypt(M, server_pub)
+    C1_sec, C2_sec = elgamal_encrypt(C2_srv, secretary_pub)
+
+    # 🔏 Підпис виборця
     signature = Point(vote.signature.x, vote.signature.y, curve)
     public_key = Point(vote.public_key.x, vote.public_key.y, curve)
-
-    # Перевірка: чи підпис == h * G (на рівні точки)
-    is_valid = signature == expected_point
-
+    is_valid = signature == hash_scalar * G
     if not is_valid:
-        raise HTTPException(status_code=403, detail="❌ Підпис недійсний")
+        raise HTTPException(status_code=403, detail="❌ Недійсний підпис")
 
-    # Зберігаємо голос (хеш + підпис)
+    # 💾 Зберігаємо голос
     storage.store_encrypted(vote.voter_id, {
         "ballot_id": vote.ballot_id,
         "choice": vote.choice,
         "hash_scalar": hash_scalar,
         "signature": signature,
-        "public_key": public_key
+        "public_key": public_key,
+        "C1_srv": C1_srv,
+        "C2_srv": C2_srv,
+        "C1_sec": C1_sec,
+        "C2_sec": C2_sec,
+        "original_text": base_text
     })
 
     return {
-        "status": "✅ Голос збережено",
+        "status": "✅ Голос зашифровано та збережено",
         "voter_id": vote.voter_id,
         "choice": vote.choice,
         "valid_signature": is_valid
     }
 
+
 @router.post("/finalize_vote")
 def finalize_vote():
     results = {}
-    ballots = storage.ballots
     votes = storage.get_all_votes()
 
     for voter_id, vote_data in votes.items():
-        ballot_id = vote_data["ballot_id"]
-        ballot = ballots.get(ballot_id)
+        try:
+            # 🔓 1. Зняття шифру секретаря
+            C1_sec = vote_data["C1_sec"]
+            C2_sec = vote_data["C2_sec"]
+            C2_srv = C2_sec - secretary_priv * C1_sec
 
-        if not ballot:
-            results[voter_id] = "❌ Бюлетень не знайдено"
-            continue
+            # 🔓 2. Зняття шифру сервера
+            C1_srv = vote_data["C1_srv"]
+            M_recovered = C2_srv - server_priv * C1_srv
 
-        # Розшифрування: спочатку секретар
-        C1_sec = ballot["C1_sec"]
-        C2_sec = ballot["C2_sec"]
-        C2_srv = C2_sec - secretary_priv * C1_sec  # зняти шифр секретаря
+            # ✅ Звірка з очікуваним M
+            expected = vote_data["hash_scalar"] * G
+            if M_recovered != expected:
+                results[voter_id] = "❌ Хеш не збігається"
+                continue
 
-        # Тепер сервер
-        C1_srv = ballot["C1_srv"]
-        M = C2_srv - server_priv * C1_srv          # зняти шифр сервера
+            # ✅ Повторна перевірка підпису
+            signature = vote_data["signature"]
+            if signature != expected:
+                results[voter_id] = "❌ Підпис не валідний"
+                continue
 
-        # Перевірка хешу
-        expected_point = vote_data["hash_scalar"] * G
-        if M != expected_point:
-            results[voter_id] = "❌ Хеш не збігається"
-            continue
+            results[voter_id] = f"✅ Голос враховано: {vote_data['choice']}"
 
-        # Перевірка підпису (ще раз, для надійності)
-        signature = vote_data["signature"]
-        public_key = vote_data["public_key"]
-        if signature != vote_data["hash_scalar"] * G:
-            results[voter_id] = "❌ Невірний підпис"
-            continue
-
-        # Голос зараховується
-        results[voter_id] = f"✅ Голос зараховано: {vote_data['choice']}"
+        except Exception as e:
+            results[voter_id] = f"❌ Помилка обробки: {str(e)}"
 
     return results
