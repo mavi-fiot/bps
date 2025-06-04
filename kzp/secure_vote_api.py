@@ -66,23 +66,12 @@ def generate_ballots():
     ballot_ids = {}
 
     for variant in variants:
-        hash_scalar = hash_ballot(text)
-        M = hash_scalar * G
-        C1_srv, C2_srv = encrypt_hash(hash_scalar, server_pub)
-        C1_sec, C2_sec = encrypt_hash(hash_scalar, secretary_pub)
-
         ballot_id = str(uuid.uuid4())
         ballot_ids[variant] = ballot_id
 
         storage.save_ballot(ballot_id, {
             "text": text,
-            "variant": variant,
-            "hash_scalar": hash_scalar,
-            "M": M,
-            "C1_srv": C1_srv,
-            "C2_srv": C2_srv,
-            "C1_sec": C1_sec,
-            "C2_sec": C2_sec,
+            "variant": variant
         })
 
     return {
@@ -101,17 +90,18 @@ def submit_vote(vote: VoteIn):
     try:
         signature = parse_point(vote.signature.model_dump())
         public_key = parse_point(vote.public_key.model_dump())
-
-    except Exception as e:
-        # raise HTTPException(status_code=400, detail=f"Недійсні координати: {e}")
+    except Exception:
         raise HTTPException(status_code=400, detail="❌ Недійсні координати підпису або публічного ключа (не належать кривій)")
 
+    # 🎯 Формування персоналізованого хешу
     personalized = ballot["text"] + vote.voter_id
     hash_scalar = hash_ballot(personalized)
 
+    # ✅ Перевірка підпису
     if not verify_signature(hash_scalar, signature, public_key):
         raise HTTPException(status_code=403, detail="❌ Недійсний підпис")
 
+    # 🔐 Шифрування хешу
     C1_srv, C2_srv = encrypt_hash(hash_scalar, server_pub)
     C1_sec, C2_sec = encrypt_hash(hash_scalar, secretary_pub)
 
@@ -148,6 +138,7 @@ def submit_vote(vote: VoteIn):
         "choice": vote.choice,
         "valid_signature": True
     }
+
 
 # ==================== 🛑 Завершення голосування ====================
 @router.post("/finalize_vote")
