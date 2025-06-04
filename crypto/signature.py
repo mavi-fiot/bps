@@ -12,13 +12,25 @@ q = curve.order
 
 # def sign_hash(hash_scalar: int, private_key: int) -> Point:
 #     return hash_scalar * (private_key * G)
+# def sign_hash(hash_scalar: int, private_key: int) -> Point:
+#     public_key = private_key * G
+#     print(f"Значення G: {G}")
+#     print(f"  Публічний ключ: ({public_key.x}, {public_key.y})")
+#     print(f"  Хеш (скаляр): {hash_scalar}")
+#     signed_point = hash_scalar * public_key
+#     print(f"  Підпис (точка): ({signed_point.x}, {signed_point.y})")
+#     return signed_point
 def sign_hash(hash_scalar: int, private_key: int) -> Point:
     public_key = private_key * G
-    print(f"Значення G: {G}")
-    print(f"  Публічний ключ: ({public_key.x}, {public_key.y})")
-    print(f"  Хеш (скаляр): {hash_scalar}")
     signed_point = hash_scalar * public_key
-    print(f"  Підпис (точка): ({signed_point.x}, {signed_point.y})")
+
+    # 🔍 Додаткова перевірка
+    try:
+        _ = Point(signed_point.x, signed_point.y, curve)
+        print("✅ Підпис — точка на кривій")
+    except Exception:
+        print("❌ Підпис — не точка на кривій!")
+
     return signed_point
 
 
