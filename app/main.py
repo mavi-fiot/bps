@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 
 # 🔌 Імпорт роутерів
 from kzp.secure_vote_api import router as secure_vote_router
-from admin_routes import router as admin_router
+from app.routes.admin_routes import router as admin_router
 
 # ⬇️ Завантаження змінних середовища
 load_dotenv()
