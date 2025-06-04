@@ -1,9 +1,8 @@
-# # kzp/secure_vote_api.py
+# kzp/secure_vote_api.py
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from ecpy.curves import Point
-# from typing import Dict, Any
 
 from kzp.store import BallotStorage
 from db.database import SessionLocal
@@ -49,6 +48,15 @@ class EncryptedData(BaseModel):
     C2_sec: tuple[int, int]
     expected_hash_scalar: int
 
+def parse_point(data: dict) -> Point:
+    try:
+        x = int(float(data["x"]))
+        y = int(float(data["y"]))
+        return Point(x, y, curve)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"❌ Некоректна точка: {e}")
+
+
 # ==================== 🗳️ Генерація бюлетенів ====================
 @router.post("/generate_ballots")
 def generate_ballots():
@@ -91,8 +99,9 @@ def submit_vote(vote: VoteIn):
         raise HTTPException(status_code=404, detail="Бюлетень не знайдено")
 
     try:
-        signature = Point(vote.signature.x, vote.signature.y, curve)
-        public_key = Point(vote.public_key.x, vote.public_key.y, curve)
+        signature = parse_point(vote.signature.model_dump())
+        public_key = parse_point(vote.public_key.model_dump())
+
     except Exception as e:
         # raise HTTPException(status_code=400, detail=f"Недійсні координати: {e}")
         raise HTTPException(status_code=400, detail="❌ Недійсні координати підпису або публічного ключа (не належать кривій)")
