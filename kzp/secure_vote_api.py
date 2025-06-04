@@ -94,7 +94,8 @@ def submit_vote(vote: VoteIn):
         signature = Point(vote.signature.x, vote.signature.y, curve)
         public_key = Point(vote.public_key.x, vote.public_key.y, curve)
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Недійсні координати: {e}")
+        # raise HTTPException(status_code=400, detail=f"Недійсні координати: {e}")
+        raise HTTPException(status_code=400, detail="❌ Недійсні координати підпису або публічного ключа (не належать кривій)")
 
     personalized = ballot["text"] + vote.voter_id
     hash_scalar = hash_ballot(personalized)
