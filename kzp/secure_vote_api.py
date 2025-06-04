@@ -5,6 +5,8 @@ from pydantic import BaseModel
 from ecpy.curves import Curve, Point
 import hashlib, secrets
 from kzp.store import BallotStorage
+from db.database import SessionLocal
+from services.vote_storage import save_vote
 
 import uuid
 
@@ -87,6 +89,17 @@ def submit_vote(vote: VoteIn):
     ballot = storage.get_ballot(vote.ballot_id)
     if not ballot:
         raise HTTPException(status_code=404, detail="Бюлетень не знайдено")
+    
+    try:
+        signature = Point(vote.signature.x, vote.signature.y, curve)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Недійсна точка підпису: {e}")
+    
+    try:
+        public_key = Point(vote.public_key.x, vote.public_key.y, curve)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Недійсний публічний ключ: {e}")
+
 
     base_text = ballot["text"]
     personalized_text = base_text + vote.voter_id
@@ -108,6 +121,21 @@ def submit_vote(vote: VoteIn):
         raise HTTPException(status_code=403, detail="❌ Недійсний підпис")
 
     # 💾 Зберігаємо голос
+    # storage.store_encrypted(vote.voter_id, {
+    #     "ballot_id": vote.ballot_id,
+    #     "choice": vote.choice,
+    #     "hash_scalar": hash_scalar,
+    #     "signature": signature,
+    #     "public_key": public_key,
+    #     "C1_srv": C1_srv,
+    #     "C2_srv": C2_srv,
+    #     "C1_sec": C1_sec,
+    #     "C2_sec": C2_sec,
+    #     "original_text": base_text
+    
+    # })
+
+        # 💾 Зберігаємо в пам'яті
     storage.store_encrypted(vote.voter_id, {
         "ballot_id": vote.ballot_id,
         "choice": vote.choice,
@@ -120,6 +148,24 @@ def submit_vote(vote: VoteIn):
         "C2_sec": C2_sec,
         "original_text": base_text
     })
+
+    # 🗂️ Зберігаємо в БД (через SQLite)
+    from db.database import SessionLocal
+    from services.vote_storage import save_vote
+
+    db = SessionLocal()
+    try:
+        save_vote(
+            db=db,
+            voter_id=vote.voter_id,
+            choice=vote.choice,
+            hash_plain=str(hash_scalar),
+            hash_encrypted=f"{C2_sec.x},{C2_sec.y}",  # 🛡️ зашифрований хеш — у вигляді координат
+            question_number=1,
+            decision_text=base_text
+        )
+    finally:
+        db.close()
 
     return {
         "status": "✅ Голос зашифровано та збережено",

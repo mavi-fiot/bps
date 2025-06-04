@@ -3,6 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <title>ІСЕГ — Голосування</title>
+  <script src="https://cdn.jsdelivr.net/npm/tweetnacl-util@0.15.1/nacl-util.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl.min.js"></script>
   <style>
     body {
       font-family: "Segoe UI", sans-serif;
@@ -12,9 +14,7 @@
       margin: auto;
       padding: 2rem;
     }
-    h1, h2 {
-      color: #1a1a1a;
-    }
+    h1, h2 { color: #1a1a1a; }
     .card {
       background: white;
       padding: 20px;
@@ -36,9 +36,7 @@
       cursor: pointer;
       transition: 0.3s;
     }
-    button:hover {
-      background-color: #1a4fbf;
-    }
+    button:hover { background-color: #1a4fbf; }
     .btn-group {
       display: flex;
       gap: 10px;
@@ -50,9 +48,7 @@
       color: #111;
       border: 1px solid #ccc;
     }
-    .btn-option:hover {
-      background-color: #dce2ea;
-    }
+    .btn-option:hover { background-color: #dce2ea; }
     pre {
       background: #f0f2f4;
       padding: 10px;
@@ -63,82 +59,70 @@
   </style>
 </head>
 <body>
-  <h1>ІСЕГ — Електронне голосування</h1>
-
-  <div class="card">
-    <h2 id="questionTitle">Питання порядку денного</h2>
-    <p><strong id="questionText">...</strong></p>
-    <p><strong>Проєкт рішення:</strong> <span id="decisionText">...</span></p>
-
-    <input id="voterId" placeholder="Введіть ID учасника" />
-
-    <div class="btn-group">
-      <button class="btn-option" onclick="submitVote('за')">✅ За</button>
-      <button class="btn-option" onclick="submitVote('проти')">❌ Проти</button>
-      <button class="btn-option" onclick="submitVote('утримався')">➖ Утримався</button>
-    </div>
+<h1>ІСЕГ — Електронне голосування</h1>
+<div class="card">
+  <h2 id="questionTitle">Питання порядку денного</h2>
+  <p><strong id="questionText">...</strong></p>
+  <p><strong>Проєкт рішення:</strong> <span id="decisionText">...</span></p>
+  <input id="voterId" placeholder="Введіть ID учасника" />
+  <div class="btn-group">
+    <button class="btn-option" onclick="submitVote('за')">✅ За</button>
+    <button class="btn-option" onclick="submitVote('проти')">❌ Проти</button>
+    <button class="btn-option" onclick="submitVote('утримався')">➖ Утримався</button>
   </div>
-
-  <div class="card">
-    <h3>Результат голосування</h3>
-    <pre id="voteResult">Очікування вибору...</pre>
-  </div>
-
-  <div class="card">
-    <h3>Завершити голосування</h3>
-    <button onclick="finalizeVote()">🛑 Завершити голосування</button>
-    <pre id="finalResult">...</pre>
-  </div>
-
+</div>
+<div class="card">
+  <h3>Результат голосування</h3>
+  <pre id="voteResult">Очікування вибору...</pre>
+</div>
+<div class="card">
+  <h3>Завершити голосування</h3>
+  <button onclick="finalizeVote()">🛑 Завершити голосування</button>
+  <pre id="finalResult">...</pre>
+</div>
 <script>
   const ballotMap = {};
   const endpoint = "/secure";
+  let keypair = null;
 
   window.addEventListener("DOMContentLoaded", async () => {
-    const res = await fetch(`${endpoint}/generate_ballots`, {
-        method: "POST"
-    });
+    const res = await fetch(`${endpoint}/generate_ballots`, { method: "POST" });
     const data = await res.json();
-    Object.assign(ballotMap, data.ballots);
     document.getElementById("questionText").textContent = data.question;
     document.getElementById("decisionText").textContent = data.decision;
     Object.assign(ballotMap, data.ballots);
+    keypair = nacl.sign.keyPair();
     console.log("📦 Отримані бюлетені:", ballotMap);
   });
 
   async function submitVote(choice) {
     const voterId = document.getElementById("voterId").value.trim();
     if (!voterId) return alert("Введіть ПІБ або ID.");
-
     const ballot_id = ballotMap[choice];
     if (!ballot_id) return alert("❌ Бюлетень не знайдено для: " + choice);
 
-    // 📄 Отримуємо текст рішення з DOM
-    const text = document.getElementById("decisionText").textContent;
-    const personalized = text + voterId;
+    const text = document.getElementById("decisionText").textContent + voterId;
+    const encoder = new TextEncoder();
+    const message = encoder.encode(text);
 
-    // 🔐 Хеш SHA-512
-    const enc = new TextEncoder();
-    const data = enc.encode(personalized);
-    const hash = await crypto.subtle.digest("SHA-512", data);
-    const hashHex = [...new Uint8Array(hash)].map(b => b.toString(16).padStart(2, "0")).join("");
-    const hashScalar = BigInt("0x" + hashHex) % (2n ** 252n + 27742317777372353535851937790883648493n); // ≈ q Ed25519
+    const signatureBin = nacl.sign.detached(message, keypair.secretKey);
+    const signatureHex = Array.from(signatureBin).map(x => x.toString(16).padStart(2, '0'));
 
-    // ✍️ Псевдо-підпис (sig = h*G моделюємо просто x,y=hashScalar)
-    const signature = { x: hashScalar.toString(), y: hashScalar.toString() };
-    const public_key = signature;
+    const pub = keypair.publicKey;
+    const pub_x = BigInt("0x" + Array.from(pub).map(x => x.toString(16).padStart(2, '0')).join(""));
 
-    // 📤 Надсилаємо голос
+    const payload = {
+      voter_id: voterId,
+      ballot_id,
+      choice,
+      signature: { x: pub_x.toString(), y: "1" }, // точку не будуємо реально
+      public_key: { x: pub_x.toString(), y: "1" }
+    };
+
     const res = await fetch(`${endpoint}/vote`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        voter_id: voterId,
-        ballot_id,
-        choice,
-        signature,
-        public_key
-      })
+      body: JSON.stringify(payload)
     });
 
     const result = await res.json();
@@ -151,7 +135,5 @@
     document.getElementById("finalResult").textContent = JSON.stringify(data, null, 2);
   }
 </script>
-
 </body>
 </html>
-
