@@ -50,11 +50,12 @@ class EncryptedData(BaseModel):
 
 def parse_point(data: dict) -> Point:
     try:
-        x = int(float(data["x"]))
-        y = int(float(data["y"]))
+        x = int(data["x"])  # без float
+        y = int(data["y"])
         return Point(x, y, curve)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"❌ Некоректна точка: {e}")
+
 
 
 # ==================== 🗳️ Генерація бюлетенів ====================
