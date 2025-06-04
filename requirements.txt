@@ -4,3 +4,4 @@ pydantic
 python-dotenv
 ecpy
 jinja2
+SQLAlchemy>=1.4
